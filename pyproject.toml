@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maxwell-control"
+version = "0.1.0"
+description = "Status and settings for Audeze Maxwell / Maxwell 2 (ANC) headsets on Linux"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
+# The CLI needs only the standard library. The GUI needs PyGObject with GTK 4 and
+# libadwaita, which on Arch come from pacman (python-gobject, gtk4, libadwaita).
+dependencies = []
+
+[project.scripts]
+maxwellctl = "maxwell_control.cli:main"
+
+[project.gui-scripts]
+maxwell-control = "maxwell_control.gui:main"
+
+[tool.setuptools]
+packages = ["maxwell_control"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

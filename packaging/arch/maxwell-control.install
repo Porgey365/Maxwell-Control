@@ -1,0 +1,9 @@
+post_install() {
+  udevadm control --reload-rules 2>/dev/null
+  udevadm trigger --subsystem-match=hidraw 2>/dev/null
+  echo "==> If the dongle was already plugged in and the app can't open it, replug it."
+}
+
+post_upgrade() {
+  post_install
+}

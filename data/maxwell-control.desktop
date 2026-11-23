@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Maxwell Control
+GenericName=Headset Settings
+Comment=Battery, EQ, sidetone and other settings for Audeze Maxwell headsets
+Exec=maxwell-control
+Icon=audio-headset
+Terminal=false
+Categories=AudioVideo;Audio;Settings;HardwareSettings;GTK;
+Keywords=Audeze;Maxwell;headset;headphones;battery;sidetone;equalizer;
+StartupNotify=true

@@ -1,0 +1,35 @@
+# Builds Maxwell Control from this git checkout.
+# Usage (from this directory):  makepkg -si
+# makepkg clones the checkout's committed state, so commit local changes first.
+
+pkgname=maxwell-control
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Status and settings for Audeze Maxwell / Maxwell 2 (ANC) headsets"
+arch=('any')
+url="https://github.com/porgey365/maxwell-control"
+license=('GPL-3.0-or-later')
+depends=('python' 'python-gobject' 'gtk4' 'libadwaita')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+checkdepends=('python-pytest')
+source=("$pkgname::git+file://$(realpath ../..)")
+sha256sums=('SKIP')
+install=maxwell-control.install
+
+build() {
+  cd "$pkgname"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+  python -m pytest -q tests
+}
+
+package() {
+  cd "$pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 data/70-maxwell-control.rules "$pkgdir/usr/lib/udev/rules.d/70-maxwell-control.rules"
+  install -Dm644 data/maxwell-control.desktop "$pkgdir/usr/share/applications/maxwell-control.desktop"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

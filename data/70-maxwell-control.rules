@@ -1,0 +1,7 @@
+# Maxwell Control: let the logged-in user open the HID control interface of Audeze devices
+# (USB vendor 0x3329) without root. "uaccess" grants access to whoever is logged in at the
+# seat; it is not world-writable. Must sort before 73-seat-late.rules, hence the 70- prefix.
+#
+# Covers every Audeze product id on purpose: the Maxwell 2 ANC's USB-C product id has not been
+# published anywhere, so a list of ids could miss it.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3329", TAG+="uaccess"
