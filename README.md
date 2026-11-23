@@ -1,7 +1,7 @@
 # Maxwell Control
 
 See and change the settings of an **Audeze Maxwell 2 ANC** (and Maxwell 2 / Maxwell) on Arch Linux.
-It has a GTK 4 / libadwaita window and a `maxwellctl` command-line tool.
+It has a GTK 4 / libadwaita window with a system-tray icon, and a `maxwellctl` command-line tool.
 
 ![Maxwell Control window (running against the built-in simulator)](docs/screenshot.png)
 
@@ -90,6 +90,35 @@ python -m maxwell_control.cli status  # CLI
 MAXWELL_SIMULATE=1 python -m maxwell_control.gui
 ```
 
+## Tray icon
+
+The app puts a headset icon in your bar's system tray:
+- **Hover:** battery % and mic/EQ status.
+- **Left-click:** opens the window.
+- **Right-click menu:** battery, EQ preset, mic noise filter, sidetone on/off, Open, Quit.
+
+The icon turns into a battery warning icon at 15% or below. Closing the window keeps the app
+running in the tray; use **Quit** from the menu to exit. If no tray is available, closing the
+window quits as usual.
+
+The icon uses the StatusNotifierItem protocol. It works with Noctalia's Tray widget, Waybar's
+`tray` module and KDE Plasma. GNOME needs the AppIndicator extension. If the icon doesn't show up
+in Noctalia, make sure the **Tray** widget is in your bar.
+
+Options:
+- `maxwell-control --hidden` starts in the tray only, for autostart.
+- `maxwell-control --no-tray` turns the tray icon off.
+
+Start it with your session, depending on the compositor you run Noctalia on:
+
+```text
+# niri (~/.config/niri/config.kdl)
+spawn-at-startup "maxwell-control" "--hidden"
+
+# Hyprland (~/.config/hypr/hyprland.conf)
+exec-once = maxwell-control --hidden
+```
+
 ## CLI
 
 ```text
@@ -167,7 +196,8 @@ python -m pytest              # protocol + logic tests against the simulator
 ```
 
 Layout: `protocol.py` (bytes only), `transport.py` (hidraw/sysfs), `headset.py` (features),
-`cli.py`, `gui.py`, `simulator.py` (fake headset for tests / `MAXWELL_SIMULATE`).
+`cli.py`, `gui.py`, `tray.py` (StatusNotifierItem + dbusmenu over Gio),
+`simulator.py` (fake headset for tests / `MAXWELL_SIMULATE`).
 
 ## License
 

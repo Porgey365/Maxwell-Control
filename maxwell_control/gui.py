@@ -205,6 +205,7 @@ class MaxwellWindow(Adw.ApplicationWindow):
             self.empty.set_title("Looking for your Maxwell…")
             self.empty.set_description("Plug in the wireless dongle or a USB-C cable.")
         GLib.timeout_add_seconds(RECONNECT_SECONDS, self._retry_connect)
+        self.get_application().update_tray(None, connected=False)
         return False
 
     def _retry_connect(self) -> bool:
@@ -302,10 +303,11 @@ class MaxwellWindow(Adw.ApplicationWindow):
                     parts.append(f"Dongle {s.dongle_firmware}")
                 self.fw_row.set_subtitle(" · ".join(parts))
             failed = [k for k in s.errors if k != "battery" or reachable]
-            if reachable and failed:
+            if reachable and failed and self.get_visible():
                 self._toast("Couldn't read: " + ", ".join(failed))
         finally:
             self._syncing = False
+        self.get_application().update_tray(s, connected=True)
         return False
 
     # -- writes -------------------------------------------------------------------------------
@@ -377,25 +379,152 @@ class MaxwellWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
         return False
 
+    # Actions offered by the tray menu --------------------------------------------------------
+
+    def tray_set_eq(self, preset: int) -> None:
+        self._write("Changing EQ preset", lambda h: h.set_eq_preset(preset))
+
+    def tray_set_sidetone(self, on: bool) -> None:
+        self._write("Switching sidetone", lambda h: h.set_sidetone_enabled(on))
+
+    def tray_set_noise_filter(self, level: int) -> None:
+        self._write("Changing noise filter", lambda h: h.set_noise_filter(level))
+
     def _on_close(self, *_):
+        app = self.get_application()
+        tray = app.tray
+        if tray is not None and tray.registered:
+            self.set_visible(False)  # keep running in the tray
+            return True
+        # No tray to come back from: quit for real (the app holds itself open for the tray).
+        GLib.idle_add(lambda: (app.quit(), False)[1])
+        return False
+
+    def shutdown(self) -> None:
         self.worker.stop()
         if self.headset:
             self.headset.close()
-        return False
+            self.headset = None
 
 
 class MaxwellApp(Adw.Application):
-    def __init__(self) -> None:
+    def __init__(self, use_tray: bool = True, start_hidden: bool = False) -> None:
         super().__init__(application_id=APP_ID)
         GLib.set_application_name("Maxwell Control")
+        self.use_tray = use_tray
+        self.start_hidden = start_hidden
+        self.window: Optional[MaxwellWindow] = None
+        self.tray = None
+        self._last_status: Optional[Status] = None
+        self._connected = False
+
+    def do_startup(self) -> None:
+        Adw.Application.do_startup(self)
+        if self.use_tray:
+            from .tray import TrayIcon
+            self.tray = TrayIcon("Maxwell Control", self.show_window)
+            self.tray.start()
+            self.hold()  # keep running with the window closed
+            self.update_tray(None, connected=False)
 
     def do_activate(self) -> None:
-        win = self.props.active_window or MaxwellWindow(self)
-        win.present()
+        first = self.window is None
+        if first:
+            self.window = MaxwellWindow(self)
+        if first and self.start_hidden and self.tray is not None:
+            # Registration is asynchronous. If no tray host takes the icon, show the window
+            # instead of running invisibly.
+            GLib.timeout_add_seconds(5, self._check_tray_or_show)
+            return
+        self.window.present()
+
+    def _check_tray_or_show(self) -> bool:
+        if self.tray is not None and not self.tray.registered:
+            print("maxwell-control: no system tray found; opening the window instead")
+            self.show_window()
+        return False
+
+    def do_shutdown(self) -> None:
+        if self.window:
+            self.window.shutdown()
+        if self.tray:
+            self.tray.stop()
+        Adw.Application.do_shutdown(self)
+
+    def show_window(self) -> None:
+        if self.window is None:
+            self.window = MaxwellWindow(self)
+        self.window.set_visible(True)
+        self.window.present()
+
+    def update_tray(self, s: Optional[Status], connected: bool) -> None:
+        if self.tray is None:
+            return
+        from .tray import MenuItem, battery_icon
+
+        self._last_status, self._connected = s, connected
+        win = self.window
+        reachable = bool(s and s.headset_reachable)
+
+        if not connected:
+            title, body = "Maxwell: not connected", "Plug in the dongle or USB-C cable"
+        elif not reachable:
+            title, body = "Maxwell: headset off", "The dongle is connected, but the headset isn't answering"
+        else:
+            title = f"Maxwell: {s.battery}%"
+            lines = []
+            if s.mic_muted is not None:
+                lines.append("Mic muted" if s.mic_muted else "Mic live")
+            if s.eq_preset in p.EQ_PRESETS:
+                lines.append(f"EQ: {p.EQ_PRESETS[s.eq_preset]}")
+            body = " · ".join(lines)
+        self.tray.set_icon(battery_icon(s.battery if reachable else None))
+        self.tray.set_tooltip(title, body)
+
+        def act(fn):
+            return (lambda: fn()) if win else None
+
+        eq_items = [
+            MenuItem(100 + n, label=name, toggle="radio", enabled=reachable,
+                     checked=reachable and s.eq_preset == n,
+                     on_click=act(lambda n=n: win.tray_set_eq(n)))
+            for n, name in p.EQ_PRESETS.items()
+        ]
+        nf_items = [
+            MenuItem(200 + n, label=name, toggle="radio", enabled=reachable,
+                     checked=reachable and s.noise_filter == n,
+                     on_click=act(lambda n=n: win.tray_set_noise_filter(n)))
+            for n, name in p.NOISE_FILTER_LEVELS.items()
+        ]
+        sidetone_on = bool(reachable and s.sidetone and s.sidetone.enabled)
+        items = [
+            MenuItem(1, label=title.replace("Maxwell: ", "Battery: ") if reachable else title,
+                     enabled=False),
+            MenuItem(2, label=body, enabled=False, visible=bool(body)),
+            MenuItem(3, separator=True),
+            MenuItem(4, label="EQ preset", enabled=reachable, children=eq_items),
+            MenuItem(5, label="Mic noise filter", enabled=reachable, children=nf_items),
+            MenuItem(6, label="Sidetone", toggle="checkmark", checked=sidetone_on,
+                     enabled=reachable and s.sidetone is not None,
+                     on_click=act(lambda: win.tray_set_sidetone(not sidetone_on))),
+            MenuItem(7, separator=True),
+            MenuItem(8, label="Open Maxwell Control", on_click=self.show_window),
+            MenuItem(9, label="Quit", on_click=self.quit),
+        ]
+        self.tray.set_menu(items)
 
 
 def main() -> int:
-    return MaxwellApp().run(sys.argv)
+    argv = list(sys.argv)
+    start_hidden = "--hidden" in argv
+    use_tray = "--no-tray" not in argv
+    if "-h" in argv or "--help" in argv:
+        print("usage: maxwell-control [--hidden] [--no-tray]\n\n"
+              "  --hidden   start in the tray without opening the window (for autostart)\n"
+              "  --no-tray  no tray icon; closing the window quits")
+        return 0
+    argv = [a for a in argv if a not in ("--hidden", "--no-tray")]
+    return MaxwellApp(use_tray=use_tray, start_hidden=start_hidden).run(argv)
 
 
 if __name__ == "__main__":
